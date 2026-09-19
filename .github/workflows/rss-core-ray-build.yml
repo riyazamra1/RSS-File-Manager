@@ -21,21 +21,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
-
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -44,69 +40,51 @@ jobs:
           if-no-files-found: error
 
   rss-core-ray:
-    name: RSS Core + RAY handshake
+    name: RSS Core + RAY dispatch
     needs: build
     runs-on: ubuntu-latest
     env:
       RSS_CORE_URL: ${{ vars.RSS_CORE_URL }}
-      RSS_CORE_RAY_DISPATCH_URL: ${{ vars.RSS_CORE_RAY_DISPATCH_URL }}
       RSS_CORE_TOKEN: ${{ secrets.RSS_CORE_TOKEN }}
     steps:
-      - name: Check RSS Core / RAY status
+      - name: Check RSS Core
         shell: bash
         run: |
           set -euo pipefail
           CORE_URL="${RSS_CORE_URL:-https://rsscore.cv}"
-          STATUS_URL="${CORE_URL%/}/api/v1/ray/status"
-
-          echo "Checking RSS Core RAY status: $STATUS_URL"
+          STATUS_URL="${CORE_URL%/}/api/v1/status"
+          echo "Checking RSS Core: $STATUS_URL"
           if [ -n "${RSS_CORE_TOKEN:-}" ]; then
-            curl --fail --silent --show-error \
-              --header "Authorization: Bearer ${RSS_CORE_TOKEN}" \
-              --header "Accept: application/json" \
-              "$STATUS_URL"
+            curl --fail --silent --show-error --header "Authorization: Bearer ${RSS_CORE_TOKEN}" --header "Accept: application/json" "$STATUS_URL"
           else
-            curl --fail --silent --show-error \
-              --header "Accept: application/json" \
-              "$STATUS_URL"
+            curl --fail --silent --show-error --header "Accept: application/json" "$STATUS_URL"
           fi
           echo
 
-      - name: Dispatch verified build to RAY
+      - name: Dispatch task to RAY
         shell: bash
         run: |
           set -euo pipefail
           CORE_URL="${RSS_CORE_URL:-https://rsscore.cv}"
-          DISPATCH_URL="${RSS_CORE_RAY_DISPATCH_URL:-${CORE_URL%/}/api/v1/ray/dispatch}"
-
-          echo "Dispatching verified RSS File Manager build to RAY: $DISPATCH_URL"
-
-          AUTH_ARGS=()
-          if [ -n "${RSS_CORE_TOKEN:-}" ]; then
-            AUTH_ARGS=(--header "Authorization: Bearer ${RSS_CORE_TOKEN}")
-          else
-            echo "::warning::RSS_CORE_TOKEN is not configured; attempting RAY dispatch without authentication."
-          fi
-
-          curl --fail --silent --show-error \
-            --request POST \
-            "${AUTH_ARGS[@]}" \
+          DISPATCH_URL="${CORE_URL%/}/api/v1/ray/dispatch"
+          test -n "${RSS_CORE_TOKEN:-}" || {
+            echo "::error::RSS_CORE_TOKEN is required for RSS Core API authentication."
+            exit 1
+          }
+          PAYLOAD=$(cat <<JSON
+          {
+            "project": "RSS-File-Manager",
+            "task": "Verified Android debug build completed in GitHub Actions for commit ${GITHUB_SHA}. Continue the RSS File Manager development workflow from this repository commit.",
+            "command": ["bash", "-lc", "echo RSS File Manager RAY handoff verified for commit ${GITHUB_SHA}"],
+            "priority": "normal"
+          }
+          JSON
+          )
+          echo "Dispatching to $DISPATCH_URL"
+          curl --fail --silent --show-error --request POST \
+            --header "Authorization: Bearer ${RSS_CORE_TOKEN}" \
             --header "Content-Type: application/json" \
             --header "Accept: application/json" \
-            --data '{
-              "project": "RSS-File-Manager",
-              "repository": "riyazamra1/RSS-File-Manager",
-              "ref": "'"${GITHUB_SHA}"'",
-              "branch": "'"${GITHUB_REF_NAME}"'",
-              "event": "android-debug-build",
-              "artifact": "rss-file-manager-debug-'"'${GITHUB_SHA}"'"
-            }' \
-            "$DISPATCH_URL"
+            --data "$PAYLOAD" "$DISPATCH_URL"
           echo
-          echo "RAY dispatch request completed."
-
-      - name: Report RAY authentication state
-        if: ${{ env.RSS_CORE_TOKEN == '' }}
-        run: |
-          echo "::warning::RAY dispatch URL is now enabled by default, but RSS_CORE_TOKEN is not configured."
-          echo "If RSS Core requires authentication, add repository secret RSS_CORE_TOKEN."
+          echo "RAY dispatch accepted by RSS Core."
