@@ -3,7 +3,6 @@ package com.riyaz.rssfilemanager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -57,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -78,6 +78,7 @@ private data class StorageItem(
 private fun RSSFileManagerApp() {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var query by remember { mutableStateOf("") }
     var grid by remember { mutableStateOf(false) }
 
@@ -85,9 +86,8 @@ private fun RSSFileManagerApp() {
         ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Persist access so the selected folder can become a managed location.
             try {
-                androidx.compose.ui.platform.LocalContext.current.contentResolver.takePersistableUriPermission(
+                context.contentResolver.takePersistableUriPermission(
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
@@ -99,8 +99,16 @@ private fun RSSFileManagerApp() {
 
     val storageItems = remember {
         mutableStateListOf(
-            StorageItem("Internal storage", "Choose a folder to browse device files", Icons.Default.Storage),
-            StorageItem("SD card / USB", "Removable storage appears when available", Icons.Default.Folder)
+            StorageItem(
+                "Internal storage",
+                "Choose a folder to browse device files",
+                Icons.Default.Storage
+            ),
+            StorageItem(
+                "SD card / USB",
+                "Removable storage appears when available",
+                Icons.Default.Folder
+            )
         )
     }
 
@@ -215,7 +223,11 @@ private fun DrawerHeader() {
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
-                Text("RSS", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "RSS",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium
+                )
             }
             Spacer(Modifier.width(14.dp))
             Column {
