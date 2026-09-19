@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -57,6 +58,10 @@ private fun RSSFileManagerApp() {
     var currentUri by remember { mutableStateOf<Uri?>(null) }
     var currentTitle by remember { mutableStateOf("Local storage") }
     var sortAscending by remember { mutableStateOf(true) }
+    var selectedUris by remember { mutableStateOf(setOf<String>()) }
+    var showCreateFolder by remember { mutableStateOf(false) }
+    var renameEntry by remember { mutableStateOf<FileEntry?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -153,6 +158,12 @@ private fun RSSFileManagerApp() {
                         }
                     },
                     actions = {
+                        if (currentDocument != null && selectedUris.isNotEmpty()) {
+                            IconButton(onClick = { showDeleteConfirm = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete selected") }
+                            IconButton(onClick = { selectedUris = emptySet() }) { Icon(Icons.Default.Close, contentDescription = "Clear selection") }
+                        } else if (currentDocument != null) {
+                            IconButton(onClick = { showCreateFolder = true }) { Icon(Icons.Default.CreateNewFolder, contentDescription = "Create folder") }
+                        }
                         IconButton(onClick = { grid = !grid }) {
                             Icon(
                                 if (grid) Icons.Default.ViewList else Icons.Default.GridView,
@@ -174,11 +185,15 @@ private fun RSSFileManagerApp() {
                     onQueryChange = { query = it },
                     grid = grid,
                     sortAscending = sortAscending,
+                    selectedUris = selectedUris,
+                    onSelectionChange = { selectedUris = it },
+                    onRename = { renameEntry = it },
                     onOpen = { entry ->
                         if (entry.isDirectory) {
                             currentUri = entry.file.uri
                             currentTitle = entry.name
                             query = ""
+                            selectedUris = emptySet()
                         } else {
                             openFile(context, entry.file)
                         }
@@ -319,7 +334,10 @@ private fun FileBrowser(
     onQueryChange: (String) -> Unit,
     grid: Boolean,
     sortAscending: Boolean,
-    onOpen: (FileEntry) -> Unit
+    onOpen: (FileEntry) -> Unit,
+    selectedUris: Set<String>,
+    onSelectionChange: (Set<String>) -> Unit,
+    onRename: (FileEntry) -> Unit
 ) {
     val entries = remember(document, query, sortAscending) {
         document.listFiles()
@@ -365,23 +383,43 @@ private fun FileBrowser(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 20.dp)
             ) {
-                items(entries) { entry -> FileGridItem(entry, onOpen) }
+                items(entries) { entry -> FileGridItem(entry, selectedUris, onSelectionChange, onRename, onOpen) }
             }
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 contentPadding = PaddingValues(bottom = 20.dp)
             ) {
-                items(entries) { entry -> FileListItem(entry, onOpen) }
+                items(entries) { entry -> FileListItem(entry, selectedUris, onSelectionChange, onRename, onOpen) }
             }
         }
     }
 }
 
 @Composable
-private fun FileListItem(entry: FileEntry, onOpen: (FileEntry) -> Unit) {
+private fun FileListItem(
+    entry: FileEntry,
+    selectedUris: Set<String>,
+    onSelectionChange: (Set<String>) -> Unit,
+    onRename: (FileEntry) -> Unit,
+    onOpen: (FileEntry) -> Unit
+) {
+    val selected = entry.file.uri.toString() in selectedUris
     ListItem(
-        modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable { onOpen(entry) },
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .combinedClickable(
+                onClick = {
+                    if (selectedUris.isNotEmpty()) {
+                        val uri = entry.file.uri.toString()
+                        onSelectionChange(if (selected) selectedUris - uri else selectedUris + uri)
+                    } else onOpen(entry)
+                },
+                onLongClick = {
+                    val uri = entry.file.uri.toString()
+                    onSelectionChange(if (selected) selectedUris - uri else selectedUris + uri)
+                }
+            ),
         leadingContent = {
             Icon(
                 if (entry.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
@@ -393,14 +431,45 @@ private fun FileListItem(entry: FileEntry, onOpen: (FileEntry) -> Unit) {
         },
         supportingContent = {
             Text(if (entry.isDirectory) "Folder" else formatSize(entry.size))
+        },
+        trailingContent = {
+            if (!selected) {
+                IconButton(onClick = { onRename(entry) }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Rename")
+                }
+            } else {
+                Icon(Icons.Default.CheckCircle, contentDescription = "Selected")
+            }
         }
     )
 }
 
 @Composable
-private fun FileGridItem(entry: FileEntry, onOpen: (FileEntry) -> Unit) {
+private fun FileGridItem(
+    entry: FileEntry,
+    selectedUris: Set<String>,
+    onSelectionChange: (Set<String>) -> Unit,
+    onRename: (FileEntry) -> Unit,
+    onOpen: (FileEntry) -> Unit
+) {
+    val selected = entry.file.uri.toString() in selectedUris
     Surface(
-        modifier = Modifier.fillMaxWidth().height(130.dp).clickable { onOpen(entry) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(130.dp)
+            .combinedClickable(
+                onClick = {
+                    if (selectedUris.isNotEmpty()) {
+                        val uri = entry.file.uri.toString()
+                        onSelectionChange(if (selected) selectedUris - uri else selectedUris + uri)
+                    } else onOpen(entry)
+                },
+                onLongClick = {
+                    val uri = entry.file.uri.toString()
+                    onSelectionChange(if (selected) selectedUris - uri else selectedUris + uri)
+                }
+            ),
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(18.dp),
         tonalElevation = 1.dp
     ) {
@@ -452,3 +521,4 @@ private fun formatSize(bytes: Long): String {
     if (mb < 1024) return String.format("%.1f MB", mb)
     return String.format("%.1f GB", mb / 1024.0)
 }
+
