@@ -351,7 +351,7 @@ private fun FileBrowser(
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            "$" + "{entries.size} item" + "$" + "{if (entries.size == 1) "" else "s"}",
+            "${entries.size} item${if (entries.size == 1) "" else "s"}",
             style = MaterialTheme.typography.labelMedium
         )
         Spacer(Modifier.height(6.dp))
@@ -445,7 +445,7 @@ private fun openFile(context: android.content.Context, file: DocumentFile) {
 }
 
 private fun formatSize(bytes: Long): String {
-    if (bytes < 1024) return "$" + "{bytes} B"
+    if (bytes < 1024) return "${bytes} B"
     val kb = bytes / 1024.0
     if (kb < 1024) return String.format("%.1f KB", kb)
     val mb = kb / 1024.0
