@@ -208,7 +208,85 @@ private fun RSSFileManagerApp() {
                 )
             }
         }
+
+        if (showCreateFolder) {
+            TextInputDialog(
+                title = "New folder",
+                label = "Folder name",
+                confirmLabel = "Create",
+                onDismiss = { showCreateFolder = false },
+                onConfirm = { name ->
+                    currentDocument?.createDirectory(name)
+                    showCreateFolder = false
+                }
+            )
+        }
+
+        renameEntry?.let { entry ->
+            TextInputDialog(
+                title = "Rename",
+                label = "New name",
+                initialValue = entry.name,
+                confirmLabel = "Rename",
+                onDismiss = { renameEntry = null },
+                onConfirm = { name ->
+                    entry.file.renameTo(name)
+                    renameEntry = null
+                }
+            )
+        }
+
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("Delete selected?") },
+                text = { Text(selectedUris.size.toString() + " selected item(s) will be deleted.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        currentDocument?.listFiles()
+                            ?.filter { it.uri.toString() in selectedUris }
+                            ?.forEach { it.delete() }
+                        selectedUris = emptySet()
+                        showDeleteConfirm = false
+                    }) { Text("Delete") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                }
+            )
+        }
     }
+}
+
+@Composable
+private fun TextInputDialog(
+    title: String,
+    label: String,
+    initialValue: String = "",
+    confirmLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var value by remember(initialValue) { mutableStateOf(initialValue) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                label = { Text(label) },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (value.trim().isNotEmpty()) onConfirm(value.trim()) },
+                enabled = value.trim().isNotEmpty()
+            ) { Text(confirmLabel) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
