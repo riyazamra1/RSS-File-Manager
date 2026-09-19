@@ -1,0 +1,73 @@
+# Android / Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local Android SDK configuration
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries/
+.idea/**/shelf/
+
+# Kotlin
+.kotlin/
+
+# Generated APK/AAB outputs
+*.apk
+*.aab
+*.apks
+
+# Native build outputs
+.externalNativeBuild/
+.cxx/
+
+# Signing credentials and keystores
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+key.properties
+
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+secrets.properties
+google-services.json
+
+# Firebase / service-account credentials
+service-account*.json
+*-service-account.json
+firebase-adminsdk-*.json
+
+# Crash / profiling / tooling outputs
+captures/
+*.hprof
+*.prof
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Release/signing output directories
+release/
+outputs/
