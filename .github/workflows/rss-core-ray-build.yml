@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RSS_CORE_URL: ${{ vars.RSS_CORE_URL }}
-      RSS_CORE_RAY_DISPATCH_URL: ${{ secrets.RSS_CORE_RAY_DISPATCH_URL }}
+      RSS_CORE_RAY_DISPATCH_URL: ${{ vars.RSS_CORE_RAY_DISPATCH_URL }}
       RSS_CORE_TOKEN: ${{ secrets.RSS_CORE_TOKEN }}
     steps:
       - name: Check RSS Core / RAY status
@@ -73,18 +73,24 @@ jobs:
           echo
 
       - name: Dispatch verified build to RAY
-        if: ${{ env.RSS_CORE_RAY_DISPATCH_URL != '' }}
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${RSS_CORE_TOKEN:-}" || {
-            echo "::error::RSS_CORE_TOKEN is required when RSS_CORE_RAY_DISPATCH_URL is configured."
-            exit 1
-          }
+          CORE_URL="${RSS_CORE_URL:-https://rsscore.cv}"
+          DISPATCH_URL="${RSS_CORE_RAY_DISPATCH_URL:-${CORE_URL%/}/api/v1/ray/dispatch}"
+
+          echo "Dispatching verified RSS File Manager build to RAY: $DISPATCH_URL"
+
+          AUTH_ARGS=()
+          if [ -n "${RSS_CORE_TOKEN:-}" ]; then
+            AUTH_ARGS=(--header "Authorization: Bearer ${RSS_CORE_TOKEN}")
+          else
+            echo "::warning::RSS_CORE_TOKEN is not configured; attempting RAY dispatch without authentication."
+          fi
 
           curl --fail --silent --show-error \
             --request POST \
-            --header "Authorization: Bearer ${RSS_CORE_TOKEN}" \
+            "${AUTH_ARGS[@]}" \
             --header "Content-Type: application/json" \
             --header "Accept: application/json" \
             --data '{
@@ -93,15 +99,14 @@ jobs:
               "ref": "'"${GITHUB_SHA}"'",
               "branch": "'"${GITHUB_REF_NAME}"'",
               "event": "android-debug-build",
-              "artifact": "rss-file-manager-debug-'"${GITHUB_SHA}"'"
+              "artifact": "rss-file-manager-debug-'"'${GITHUB_SHA}"'"
             }' \
-            "${RSS_CORE_RAY_DISPATCH_URL}"
+            "$DISPATCH_URL"
+          echo
+          echo "RAY dispatch request completed."
 
-      - name: Report dispatch configuration
-        if: ${{ env.RSS_CORE_RAY_DISPATCH_URL == '' }}
+      - name: Report RAY authentication state
+        if: ${{ env.RSS_CORE_TOKEN == '' }}
         run: |
-          echo "RSS Core status check completed."
-          echo "RAY task dispatch is not configured yet."
-          echo "Configure repository variable RSS_CORE_URL (optional),"
-          echo "secret RSS_CORE_TOKEN, and secret RSS_CORE_RAY_DISPATCH_URL"
-          echo "to enable authenticated RAY task dispatch.";
+          echo "::warning::RAY dispatch URL is now enabled by default, but RSS_CORE_TOKEN is not configured."
+          echo "If RSS Core requires authentication, add repository secret RSS_CORE_TOKEN."
