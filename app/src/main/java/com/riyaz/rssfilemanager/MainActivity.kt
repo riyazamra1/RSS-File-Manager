@@ -91,6 +91,10 @@ private fun RSSFileManagerApp() {
         query = ""
     }
 
+    val currentDocument = remember(currentUri, refreshKey) {
+        currentUri?.let { DocumentFile.fromTreeUri(context, it) }
+    }
+
     val destinationPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val request = operationRequest
         if (uri != null && request != null) {
@@ -105,8 +109,6 @@ private fun RSSFileManagerApp() {
             operationRequest = null
         }
     }
-
-    val currentDocument = remember(currentUri, refreshKey) {
         currentUri?.let { DocumentFile.fromTreeUri(context, it) }
     }
 
