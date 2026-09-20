@@ -31,7 +31,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,6 +65,8 @@ private fun RSSFileManagerApp() {
     var showCreateFolder by remember { mutableStateOf(false) }
     var renameEntry by remember { mutableStateOf<FileEntry?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var operationRequest by remember { mutableStateOf<Pair<Boolean, Set<String>>?>(null) }
+    var operationProgress by remember { mutableStateOf<String?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -80,6 +84,30 @@ private fun RSSFileManagerApp() {
         currentUri = uri
         currentTitle = "Selected storage"
         query = ""
+    }
+
+    val destinationPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        val request = operationRequest
+        if (uri != null && request != null) {
+            val move = request.first
+            val uris = request.second
+            operationRequest = null
+            scope.launch {
+                operationProgress = "Preparing operation…"
+                val destination = DocumentFile.fromTreeUri(context, uri)
+                val sources = currentDocument?.listFiles()?.filter { it.uri.toString() in uris } ?: emptyList()
+                var done = 0
+                sources.forEach { source ->
+                    val result = withContext(Dispatchers.IO) {
+                        copyOrMoveDocument(context, source, destination!!, CollisionMode.KEEP_BOTH, move)
+                    }
+                    done++
+                    operationProgress = "$done/${sources.size}: ${result.message}"
+                }
+                selectedUris = emptySet()
+                operationProgress = null
+            }
+        }
     }
 
     val currentDocument = remember(currentUri) {
@@ -160,6 +188,8 @@ private fun RSSFileManagerApp() {
                     },
                     actions = {
                         if (currentDocument != null && selectedUris.isNotEmpty()) {
+                            IconButton(onClick = { operationRequest = Pair(false, selectedUris) ; destinationPicker.launch(null) }) { Icon(Icons.Default.ContentCopy, contentDescription = "Copy selected") }
+                            IconButton(onClick = { operationRequest = Pair(true, selectedUris) ; destinationPicker.launch(null) }) { Icon(Icons.Default.DriveFileMove, contentDescription = "Move selected") }
                             IconButton(onClick = { showDeleteConfirm = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete selected") }
                             IconButton(onClick = { selectedUris = emptySet() }) { Icon(Icons.Default.Close, contentDescription = "Clear selection") }
                         } else if (currentDocument != null) {
@@ -208,6 +238,10 @@ private fun RSSFileManagerApp() {
                     onPickFolder = { folderPicker.launch(null) }
                 )
             }
+        }
+
+        operationProgress?.let { message ->
+            AlertDialog(onDismissRequest = {}, title = { Text("File operation") }, text = { Column { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()); Spacer(Modifier.height(12.dp)); Text(message) } }, confirmButton = {})
         }
 
         if (showCreateFolder) {
