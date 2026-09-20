@@ -66,6 +66,11 @@ private fun RSSFileManagerApp() {
     var renameEntry by remember { mutableStateOf<FileEntry?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var operationRequest by remember { mutableStateOf<Pair<Boolean, Set<String>>?>(null) }
+    var pendingMove by remember { mutableStateOf(false) }
+    var pendingDestination by remember { mutableStateOf<Uri?>(null) }
+    var pendingSources by remember { mutableStateOf<List<DocumentFile>>(emptyList()) }
+    var showCollisionChoice by remember { mutableStateOf(false) }
+    var refreshKey by remember { mutableIntStateOf(0) }
     var operationProgress by remember { mutableStateOf<String?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(
@@ -89,28 +94,19 @@ private fun RSSFileManagerApp() {
     val destinationPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val request = operationRequest
         if (uri != null && request != null) {
-            val move = request.first
-            val uris = request.second
             operationRequest = null
-            scope.launch {
-                operationProgress = "Preparing operation…"
-                val destination = DocumentFile.fromTreeUri(context, uri)
-                val sources = currentDocument?.listFiles()?.filter { it.uri.toString() in uris } ?: emptyList()
-                var done = 0
-                sources.forEach { source ->
-                    val result = withContext(Dispatchers.IO) {
-                        copyOrMoveDocument(context, source, destination!!, CollisionMode.KEEP_BOTH, move)
-                    }
-                    done++
-                    operationProgress = "$done/${sources.size}: ${result.message}"
-                }
-                selectedUris = emptySet()
-                operationProgress = null
-            }
+            pendingMove = request.first
+            pendingDestination = uri
+            pendingSources = currentDocument?.listFiles()
+                ?.filter { it.uri.toString() in request.second }
+                ?: emptyList()
+            showCollisionChoice = true
+        } else {
+            operationRequest = null
         }
     }
 
-    val currentDocument = remember(currentUri) {
+    val currentDocument = remember(currentUri, refreshKey) {
         currentUri?.let { DocumentFile.fromTreeUri(context, it) }
     }
 
@@ -188,8 +184,8 @@ private fun RSSFileManagerApp() {
                     },
                     actions = {
                         if (currentDocument != null && selectedUris.isNotEmpty()) {
-                            IconButton(onClick = { operationRequest = Pair(false, selectedUris) ; destinationPicker.launch(null) }) { Icon(Icons.Default.ContentCopy, contentDescription = "Copy selected") }
-                            IconButton(onClick = { operationRequest = Pair(true, selectedUris) ; destinationPicker.launch(null) }) { Icon(Icons.Default.DriveFileMove, contentDescription = "Move selected") }
+                            IconButton(onClick = { operationRequest = Pair(false, selectedUris); destinationPicker.launch(null) }) { Icon(Icons.Default.ContentCopy, contentDescription = "Copy selected") }
+                            IconButton(onClick = { operationRequest = Pair(true, selectedUris); destinationPicker.launch(null) }) { Icon(Icons.Default.DriveFileMove, contentDescription = "Move selected") }
                             IconButton(onClick = { showDeleteConfirm = true }) { Icon(Icons.Default.Delete, contentDescription = "Delete selected") }
                             IconButton(onClick = { selectedUris = emptySet() }) { Icon(Icons.Default.Close, contentDescription = "Clear selection") }
                         } else if (currentDocument != null) {
@@ -240,6 +236,85 @@ private fun RSSFileManagerApp() {
             }
         }
 
+        if (showCollisionChoice) {
+            val destination = pendingDestination?.let { DocumentFile.fromTreeUri(context, it) }
+            val conflicts = pendingSources.count { source ->
+                destination?.findFile(source.name ?: "Unnamed") != null
+            }
+            AlertDialog(
+                onDismissRequest = {
+                    showCollisionChoice = false
+                    pendingDestination = null
+                    pendingSources = emptyList()
+                },
+                title = { Text("Files already exist") },
+                text = {
+                    Text(
+                        if (conflicts == 1) "1 selected item already exists in the destination."
+                        else conflicts.toString() + " selected items already exist in the destination."
+                    )
+                },
+                confirmButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = {
+                            showCollisionChoice = false
+                            val move = pendingMove
+                            val destinationUri = pendingDestination
+                            val sources = pendingSources
+                            pendingDestination = null
+                            pendingSources = emptyList()
+                            scope.launch {
+                                runFileOperation(context, destinationUri, sources, move, CollisionMode.SKIP,
+                                    onProgress = { operationProgress = it },
+                                    onComplete = {
+                                        selectedUris = emptySet()
+                                        refreshKey++
+                                        operationProgress = null
+                                    }
+                                )
+                            }
+                        }) { Text("Skip") }
+                        TextButton(onClick = {
+                            showCollisionChoice = false
+                            val move = pendingMove
+                            val destinationUri = pendingDestination
+                            val sources = pendingSources
+                            pendingDestination = null
+                            pendingSources = emptyList()
+                            scope.launch {
+                                runFileOperation(context, destinationUri, sources, move, CollisionMode.REPLACE,
+                                    onProgress = { operationProgress = it },
+                                    onComplete = {
+                                        selectedUris = emptySet()
+                                        refreshKey++
+                                        operationProgress = null
+                                    }
+                                )
+                            }
+                        }) { Text("Replace") }
+                        Button(onClick = {
+                            showCollisionChoice = false
+                            val move = pendingMove
+                            val destinationUri = pendingDestination
+                            val sources = pendingSources
+                            pendingDestination = null
+                            pendingSources = emptyList()
+                            scope.launch {
+                                runFileOperation(context, destinationUri, sources, move, CollisionMode.KEEP_BOTH,
+                                    onProgress = { operationProgress = it },
+                                    onComplete = {
+                                        selectedUris = emptySet()
+                                        refreshKey++
+                                        operationProgress = null
+                                    }
+                                )
+                            }
+                        }) { Text("Keep both") }
+                    }
+                }
+            )
+        }
+
         operationProgress?.let { message ->
             AlertDialog(onDismissRequest = {}, title = { Text("File operation") }, text = { Column { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()); Spacer(Modifier.height(12.dp)); Text(message) } }, confirmButton = {})
         }
@@ -252,6 +327,7 @@ private fun RSSFileManagerApp() {
                 onDismiss = { showCreateFolder = false },
                 onConfirm = { name ->
                     currentDocument?.createDirectory(name)
+                    refreshKey++
                     showCreateFolder = false
                 }
             )
@@ -266,6 +342,7 @@ private fun RSSFileManagerApp() {
                 onDismiss = { renameEntry = null },
                 onConfirm = { name ->
                     entry.file.renameTo(name)
+                    refreshKey++
                     renameEntry = null
                 }
             )
@@ -282,6 +359,7 @@ private fun RSSFileManagerApp() {
                             ?.filter { it.uri.toString() in selectedUris }
                             ?.forEach { it.delete() }
                         selectedUris = emptySet()
+                        refreshKey++
                         showDeleteConfirm = false
                     }) { Text("Delete") }
                 },
@@ -291,6 +369,30 @@ private fun RSSFileManagerApp() {
             )
         }
     }
+}
+
+private suspend fun runFileOperation(
+    context: android.content.Context,
+    destinationUri: Uri?,
+    sources: List<DocumentFile>,
+    move: Boolean,
+    collision: CollisionMode,
+    onProgress: (String) -> Unit,
+    onComplete: () -> Unit
+) {
+    val destination = destinationUri?.let { DocumentFile.fromTreeUri(context, it) }
+    if (destination == null) {
+        onProgress("Destination unavailable")
+        onComplete()
+        return
+    }
+    sources.forEachIndexed { index, source ->
+        onProgress("Processing " + (index + 1) + "/" + sources.size + ": " + (source.name ?: "Unnamed"))
+        withContext(Dispatchers.IO) {
+            copyOrMoveDocument(context, source, destination, collision, move)
+        }
+    }
+    onComplete()
 }
 
 @Composable
