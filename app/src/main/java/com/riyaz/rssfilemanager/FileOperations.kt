@@ -34,7 +34,7 @@ fun copyOrMoveDocument(
             val target = destination.createDirectory(targetName)
                 ?: throw IOException("Cannot create folder " + targetName)
             source.listFiles().forEach { child ->
-                val result = copyOrMoveDocument(context, child, target, CollisionMode.KEEP_BOTH, false)
+                val result = copyOrMoveDocument(context, child, target, collision, false)
                 if (!result.success) throw IOException(result.message)
             }
             if (move && !source.delete()) throw IOException("Copied but could not remove " + sourceName)
