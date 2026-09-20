@@ -109,8 +109,6 @@ private fun RSSFileManagerApp() {
             operationRequest = null
         }
     }
-        currentUri?.let { DocumentFile.fromTreeUri(context, it) }
-    }
 
     BackHandler(enabled = currentUri != null) {
         if (currentUri == rootUri) {
