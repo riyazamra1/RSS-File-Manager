@@ -72,6 +72,7 @@ private fun RSSFileManagerApp() {
     var showCollisionChoice by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
     var operationProgress by remember { mutableStateOf<String?>(null) }
+    var operationSummary by remember { mutableStateOf<String?>(null) }
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -99,6 +100,14 @@ private fun RSSFileManagerApp() {
         val request = operationRequest
         if (uri != null && request != null) {
             operationRequest = null
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: SecurityException) {
+                // Provider may grant only a subset of requested flags.
+            }
             pendingMove = request.first
             pendingDestination = uri
             pendingSources = currentDocument?.listFiles()
@@ -266,10 +275,11 @@ private fun RSSFileManagerApp() {
                             scope.launch {
                                 runFileOperation(context, destinationUri, sources, move, CollisionMode.SKIP,
                                     onProgress = { operationProgress = it },
-                                    onComplete = {
+                                    onComplete = { summary ->
                                         selectedUris = emptySet()
                                         refreshKey++
                                         operationProgress = null
+                                        operationSummary = summary
                                     }
                                 )
                             }
@@ -284,10 +294,11 @@ private fun RSSFileManagerApp() {
                             scope.launch {
                                 runFileOperation(context, destinationUri, sources, move, CollisionMode.REPLACE,
                                     onProgress = { operationProgress = it },
-                                    onComplete = {
+                                    onComplete = { summary ->
                                         selectedUris = emptySet()
                                         refreshKey++
                                         operationProgress = null
+                                        operationSummary = summary
                                     }
                                 )
                             }
@@ -302,10 +313,11 @@ private fun RSSFileManagerApp() {
                             scope.launch {
                                 runFileOperation(context, destinationUri, sources, move, CollisionMode.KEEP_BOTH,
                                     onProgress = { operationProgress = it },
-                                    onComplete = {
+                                    onComplete = { summary ->
                                         selectedUris = emptySet()
                                         refreshKey++
                                         operationProgress = null
+                                        operationSummary = summary
                                     }
                                 )
                             }
@@ -317,6 +329,17 @@ private fun RSSFileManagerApp() {
 
         operationProgress?.let { message ->
             AlertDialog(onDismissRequest = {}, title = { Text("File operation") }, text = { Column { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()); Spacer(Modifier.height(12.dp)); Text(message) } }, confirmButton = {})
+        }
+
+        operationSummary?.let { summary ->
+            AlertDialog(
+                onDismissRequest = { operationSummary = null },
+                title = { Text("Operation complete") },
+                text = { Text(summary) },
+                confirmButton = {
+                    TextButton(onClick = { operationSummary = null }) { Text("OK") }
+                }
+            )
         }
 
         if (showCreateFolder) {
@@ -378,21 +401,55 @@ private suspend fun runFileOperation(
     move: Boolean,
     collision: CollisionMode,
     onProgress: (String) -> Unit,
-    onComplete: () -> Unit
+    onComplete: (String) -> Unit
 ) {
     val destination = destinationUri?.let { DocumentFile.fromTreeUri(context, it) }
     if (destination == null) {
         onProgress("Destination unavailable")
-        onComplete()
+        onComplete("Operation could not start. The destination is unavailable.")
         return
     }
+    if (sources.isEmpty()) {
+        onComplete("Nothing to process.")
+        return
+    }
+
+    var completed = 0
+    var skipped = 0
+    var failed = 0
+    val failures = mutableListOf<String>()
+
     sources.forEachIndexed { index, source ->
-        onProgress("Processing " + (index + 1) + "/" + sources.size + ": " + (source.name ?: "Unnamed"))
-        withContext(Dispatchers.IO) {
+        val sourceName = source.name ?: "Unnamed"
+        onProgress("Processing " + (index + 1) + "/" + sources.size + ": " + sourceName)
+        val result = withContext(Dispatchers.IO) {
             copyOrMoveDocument(context, source, destination, collision, move)
         }
+        if (result.success) {
+            if (result.message.startsWith("Skipped ")) skipped++ else completed++
+        } else {
+            failed++
+            failures.add(result.message)
+        }
     }
-    onComplete()
+
+    val action = if (move) "Move" else "Copy"
+    val summary = buildString {
+        append(action).append(" finished.\n\n")
+        append("Completed: ").append(completed).append("\n")
+        append("Skipped: ").append(skipped).append("\n")
+        append("Failed: ").append(failed)
+        if (failures.isNotEmpty()) {
+            append("\n\nErrors:")
+            failures.take(5).forEach {
+                append("\n• ").append(it)
+            }
+            if (failures.size > 5) {
+                append("\n• +").append(failures.size - 5).append(" more error(s)")
+            }
+        }
+    }
+    onComplete(summary)
 }
 
 @Composable
