@@ -1,0 +1,3 @@
+# RSS Agent Operating Contract
+
+Work only inside this repository. Read REQUIREMENTS.md before changes. Never invent requirements or verification results. Inspect code first. Preserve approved assets and working behavior. Never commit secrets. Run applicable build/lint/tests, fix failures, review the final diff, and commit only verified work. Do not modify unrelated RSS repositories. If verification cannot be run, state exactly what was not verified.
