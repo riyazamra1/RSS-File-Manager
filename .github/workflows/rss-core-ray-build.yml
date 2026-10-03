@@ -62,15 +62,12 @@ jobs:
           echo
 
       - name: Dispatch task to RAY
+        if: env.RSS_CORE_TOKEN != ''
         shell: bash
         run: |
           set -euo pipefail
           CORE_URL="${RSS_CORE_URL:-https://rsscore.cv}"
           DISPATCH_URL="${CORE_URL%/}/api/v1/ray/dispatch"
-          test -n "${RSS_CORE_TOKEN:-}" || {
-            echo "::error::RSS_CORE_TOKEN is required for RSS Core API authentication."
-            exit 1
-          }
           PAYLOAD=$(cat <<JSON
           {
             "project": "RSS-File-Manager",
@@ -88,3 +85,10 @@ jobs:
             --data "$PAYLOAD" "$DISPATCH_URL"
           echo
           echo "RAY dispatch accepted by RSS Core."
+
+      - name: Report missing RAY authentication without blocking build
+        if: env.RSS_CORE_TOKEN == ''
+        shell: bash
+        run: |
+          echo "::warning::RSS_CORE_TOKEN is not configured for this repository; Android build remains valid, but direct RAY handoff was skipped."
+          echo "Central RSS AUTO/RSS Core automation must handle this repository until the token is configured."
